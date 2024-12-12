@@ -22,12 +22,17 @@ function App() {
             .then((stream) => {
                 localVideo.current.srcObject = stream;
                 stream.getTracks().forEach((track) => {
-                    peerConnection.current.addTrack(track, stream);
+                    peerConnection.current.addTrack(track, stream); // Thêm track vào peer connection
                 });
+            })
+            .catch((error) => {
+                console.error('Error accessing media devices:', error);
             });
 
         // Khi nhận stream từ peer khác
         peerConnection.current.ontrack = (event) => {
+            console.log('Received track:', event);
+
             remoteVideo.current.srcObject = event.streams[0];
         };
 
@@ -36,31 +41,41 @@ function App() {
             console.log(`Received signal from ${from}:`, signal);
         
             if (signal.type === 'offer') {
+                // Kiểm tra trạng thái của peerConnection
                 if (peerConnection.current.signalingState === 'stable') {
                     console.log("Cannot set local description in the 'stable' state");
-                    return; // Tránh gọi setLocalDescription khi peer connection đang ở trạng thái stable
+                    return;  // Không thiết lập local description nếu đang ở trạng thái stable
                 }
         
-                await peerConnection.current.setRemoteDescription(signal);  // Thiết lập remote description với offer nhận được
-                const answer = await peerConnection.current.createAnswer();  // Tạo answer
-                await peerConnection.current.setLocalDescription(answer);    // Thiết lập local description với answer
+                // Thiết lập remote description với offer nhận được
+                await peerConnection.current.setRemoteDescription(signal);
+        
+                // Tạo answer và thiết lập local description
+                const answer = await peerConnection.current.createAnswer();
+                await peerConnection.current.setLocalDescription(answer);  // Gọi setLocalDescription để thiết lập answer
+        
+                // Gửi answer tới peer
                 socket.emit('signal', {
                     to: from,
                     from: userId,
                     signal: peerConnection.current.localDescription,
                 });
             } else if (signal.type === 'answer') {
+                // Kiểm tra và xử lý answer khi peer connection đang ở trạng thái hợp lý
                 if (peerConnection.current.signalingState === 'stable') {
                     console.log("Answer received but peer connection is already in stable state.");
-                    return; // Tránh gọi setLocalDescription nếu đang ở trạng thái stable
+                    return;  // Tránh gọi setLocalDescription khi ở trạng thái stable
                 }
-                await peerConnection.current.setRemoteDescription(signal); // Thiết lập remote description với answer
+                
+                // Thiết lập remote description với answer nhận được
+                await peerConnection.current.setRemoteDescription(signal);
             } else if (signal.candidate) {
+                // Xử lý ICE candidate
                 if (!peerConnection.current.remoteDescription) {
                     console.log("Cannot add ICE candidate, remote description is null");
                     return;  // Không thêm ICE candidate nếu remote description chưa được thiết lập
                 }
-                await peerConnection.current.addIceCandidate(signal.candidate); // Thêm ICE candidate
+                await peerConnection.current.addIceCandidate(signal.candidate);
             }
         });
         
@@ -100,6 +115,7 @@ function App() {
     };
 
     const startCall = async () => {
+
         const offer = await peerConnection.current.createOffer();
         await peerConnection.current.setLocalDescription(offer);
         socket.emit('signal', {
