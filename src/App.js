@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-const origin = " https://2475-113-161-41-179.ngrok-free.app";
+const origin = "https://2475-113-161-41-179.ngrok-free.app";
 
 const socket = io(origin); // Kết nối đến server signaling
 
