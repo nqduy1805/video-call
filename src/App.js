@@ -35,6 +35,10 @@ function App() {
         socket.on('signal', async ({ from, signal }) => {
             console.log(`Received signal from ${from}:`, signal);
             if (signal.type === 'offer') {
+                if (peerConnection.current.signalingState !== 'stable') {
+                    console.log("Cannot set remote description in current state:", peerConnection.current.signalingState);
+                    return;
+                }
                 await peerConnection.current.setRemoteDescription(signal);
                 const answer = await peerConnection.current.createAnswer();
                 await peerConnection.current.setLocalDescription(answer);
@@ -44,11 +48,16 @@ function App() {
                     signal: peerConnection.current.localDescription,
                 });
             } else if (signal.type === 'answer') {
+                if (peerConnection.current.signalingState === 'stable') {
+                    console.log("Answer received but peer connection is already stable.");
+                    return;
+                }
                 await peerConnection.current.setRemoteDescription(signal);
             } else if (signal.candidate) {
                 await peerConnection.current.addIceCandidate(signal.candidate);
             }
         });
+        
 
         peerConnection.current.onicecandidate = (event) => {
             if (event.candidate) {
