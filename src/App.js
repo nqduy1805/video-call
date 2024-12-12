@@ -34,14 +34,16 @@ function App() {
         // Xử lý sự kiện từ signaling server
         socket.on('signal', async ({ from, signal }) => {
             console.log(`Received signal from ${from}:`, signal);
+        
             if (signal.type === 'offer') {
-                if (peerConnection.current.signalingState !== 'stable') {
-                    console.log("Cannot set remote description in current state:", peerConnection.current.signalingState);
-                    return;
+                if (peerConnection.current.signalingState === 'stable') {
+                    console.log("Cannot set local description in the 'stable' state");
+                    return; // Tránh gọi setLocalDescription khi peer connection đang ở trạng thái stable
                 }
-                await peerConnection.current.setRemoteDescription(signal);
-                const answer = await peerConnection.current.createAnswer();
-                await peerConnection.current.setLocalDescription(answer);
+        
+                await peerConnection.current.setRemoteDescription(signal);  // Thiết lập remote description với offer nhận được
+                const answer = await peerConnection.current.createAnswer();  // Tạo answer
+                await peerConnection.current.setLocalDescription(answer);    // Thiết lập local description với answer
                 socket.emit('signal', {
                     to: from,
                     from: userId,
@@ -49,12 +51,16 @@ function App() {
                 });
             } else if (signal.type === 'answer') {
                 if (peerConnection.current.signalingState === 'stable') {
-                    console.log("Answer received but peer connection is already stable.");
-                    return;
+                    console.log("Answer received but peer connection is already in stable state.");
+                    return; // Tránh gọi setLocalDescription nếu đang ở trạng thái stable
                 }
-                await peerConnection.current.setRemoteDescription(signal);
+                await peerConnection.current.setRemoteDescription(signal); // Thiết lập remote description với answer
             } else if (signal.candidate) {
-                await peerConnection.current.addIceCandidate(signal.candidate);
+                if (!peerConnection.current.remoteDescription) {
+                    console.log("Cannot add ICE candidate, remote description is null");
+                    return;  // Không thêm ICE candidate nếu remote description chưa được thiết lập
+                }
+                await peerConnection.current.addIceCandidate(signal.candidate); // Thêm ICE candidate
             }
         });
         
