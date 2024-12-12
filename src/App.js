@@ -10,7 +10,7 @@ import io from "socket.io-client"
 import "./App.css"
 
 
-const socket = io.connect('http://localhost:5000')
+const socket = io.connect('https://28d7-2402-800-63a6-f537-6427-cff3-1f93-c367.ngrok-free.app')
 function App() {
 	const [ me, setMe ] = useState("")
 	const [ stream, setStream ] = useState()
