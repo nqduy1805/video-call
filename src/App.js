@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-const origin = "https://2475-113-161-41-179.ngrok-free.app";
 
-const socket = io(origin); // Kết nối đến server signaling
+const origin = "https://2475-113-161-41-179.ngrok-free.app";  // Thay bằng ngrok hoặc URL backend của bạn
+const socket = io(origin);  // Kết nối đến server signaling
 
 function App() {
     const localVideo = useRef(null);
@@ -10,6 +10,7 @@ function App() {
     const peerConnection = useRef(null);
     const [userId, setUserId] = useState('');
     const [connectedUser, setConnectedUser] = useState('');
+    const [roomId, setRoomId] = useState('');
 
     useEffect(() => {
         // Kết nối WebRTC
@@ -67,7 +68,21 @@ function App() {
             console.log(`User joined: ${id}`);
             setConnectedUser(id);
         });
+
+        // Khi người dùng rời khỏi phòng
+        socket.on('user-disconnected', (id) => {
+            console.log(`User disconnected: ${id}`);
+            if (connectedUser === id) {
+                setConnectedUser('');
+            }
+        });
     }, [userId, connectedUser]);
+
+    // Join room function
+    const joinRoom = (room) => {
+        setRoomId(room);
+        socket.emit('join-room', room);  // Tham gia phòng
+    };
 
     const startCall = async () => {
         const offer = await peerConnection.current.createOffer();
@@ -85,6 +100,13 @@ function App() {
                 <video ref={localVideo} autoPlay muted style={{ width: '45%' }} />
                 <video ref={remoteVideo} autoPlay style={{ width: '45%' }} />
             </div>
+            <input
+                type="text"
+                placeholder="Enter Room ID"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+            />
+            <button onClick={() => joinRoom(roomId)}>Join Room</button>
             <button onClick={startCall} disabled={!connectedUser}>
                 Start Call
             </button>
