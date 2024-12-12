@@ -1,150 +1,160 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
+import Button from "@material-ui/core/Button"
+import IconButton from "@material-ui/core/IconButton"
+import TextField from "@material-ui/core/TextField"
+import AssignmentIcon from "@material-ui/icons/Assignment"
+import PhoneIcon from "@material-ui/icons/Phone"
+import React, { useEffect, useRef, useState } from "react"
+import { CopyToClipboard } from "react-copy-to-clipboard"
+import Peer from "simple-peer"
+import io from "socket.io-client"
+import "./App.css"
 
-const origin = "https://2475-113-161-41-179.ngrok-free.app";  // Thay bằng ngrok hoặc URL backend của bạn
-const socket = io(origin);  // Kết nối đến server signaling
 
+const socket = io.connect('http://localhost:5000')
 function App() {
-    const localVideo = useRef(null);
-    const remoteVideo = useRef(null);
-    const peerConnection = useRef(null);
-    const [userId, setUserId] = useState('');
-    const [connectedUser, setConnectedUser] = useState('');
-    const [roomId, setRoomId] = useState('');
+	const [ me, setMe ] = useState("")
+	const [ stream, setStream ] = useState()
+	const [ receivingCall, setReceivingCall ] = useState(false)
+	const [ caller, setCaller ] = useState("")
+	const [ callerSignal, setCallerSignal ] = useState()
+	const [ callAccepted, setCallAccepted ] = useState(false)
+	const [ idToCall, setIdToCall ] = useState("")
+	const [ callEnded, setCallEnded] = useState(false)
+	const [ name, setName ] = useState("")
+	const myVideo = useRef()
+	const userVideo = useRef()
+	const connectionRef= useRef()
 
-    useEffect(() => {
-        // Kết nối WebRTC
-        peerConnection.current = new RTCPeerConnection();
+	useEffect(() => {
+		navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+			setStream(stream)
+				myVideo.current.srcObject = stream
+		})
 
-        // Lấy stream từ camera/micro
-        navigator.mediaDevices
-            .getUserMedia({ video: true, audio: true })
-            .then((stream) => {
-                localVideo.current.srcObject = stream;
-                stream.getTracks().forEach((track) => {
-                    peerConnection.current.addTrack(track, stream); // Thêm track vào peer connection
-                });
-            })
-            .catch((error) => {
-                console.error('Error accessing media devices:', error);
-            });
+	socket.on("me", (id) => {
+			setMe(id)
+		})
 
-        // Khi nhận stream từ peer khác
-        peerConnection.current.ontrack = (event) => {
-            console.log('Received track:', event);
+		socket.on("callUser", (data) => {
+			setReceivingCall(true)
+			setCaller(data.from)
+			setName(data.name)
+			setCallerSignal(data.signal)
+		})
+	}, [])
 
-            remoteVideo.current.srcObject = event.streams[0];
-        };
+	const callUser = (id) => {
+		const peer = new Peer({
+			initiator: true,
+			trickle: false,
+			stream: stream
+		})
+		peer.on("signal", (data) => {
+			socket.emit("callUser", {
+				userToCall: id,
+				signalData: data,
+				from: me,
+				name: name
+			})
+		})
+		peer.on("stream", (stream) => {
+			
+				userVideo.current.srcObject = stream
+			
+		})
+		socket.on("callAccepted", (signal) => {
+			setCallAccepted(true)
+			peer.signal(signal)
+		})
 
-        // Xử lý sự kiện từ signaling server
-        socket.on('signal', async ({ from, signal }) => {
-            console.log(`Received signal from ${from}:`, signal);
-        
-            if (signal.type === 'offer') {
-                // Kiểm tra trạng thái của peerConnection
-                if (peerConnection.current.signalingState === 'stable') {
-                    console.log("Cannot set local description in the 'stable' state");
-                    return;  // Không thiết lập local description nếu đang ở trạng thái stable
-                }
-        
-                // Thiết lập remote description với offer nhận được
-                await peerConnection.current.setRemoteDescription(signal);
-        
-                // Tạo answer và thiết lập local description
-                const answer = await peerConnection.current.createAnswer();
-                await peerConnection.current.setLocalDescription(answer);  // Gọi setLocalDescription để thiết lập answer
-        
-                // Gửi answer tới peer
-                socket.emit('signal', {
-                    to: from,
-                    from: userId,
-                    signal: peerConnection.current.localDescription,
-                });
-            } else if (signal.type === 'answer') {
-                // Kiểm tra và xử lý answer khi peer connection đang ở trạng thái hợp lý
-                if (peerConnection.current.signalingState === 'stable') {
-                    console.log("Answer received but peer connection is already in stable state.");
-                    return;  // Tránh gọi setLocalDescription khi ở trạng thái stable
-                }
-                
-                // Thiết lập remote description với answer nhận được
-                await peerConnection.current.setRemoteDescription(signal);
-            } else if (signal.candidate) {
-                // Xử lý ICE candidate
-                if (!peerConnection.current.remoteDescription) {
-                    console.log("Cannot add ICE candidate, remote description is null");
-                    return;  // Không thêm ICE candidate nếu remote description chưa được thiết lập
-                }
-                await peerConnection.current.addIceCandidate(signal.candidate);
-            }
-        });
-        
+		connectionRef.current = peer
+	}
 
-        peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('signal', {
-                    to: connectedUser,
-                    from: userId,
-                    signal: { candidate: event.candidate },
-                });
-            }
-        };
+	const answerCall =() =>  {
+		setCallAccepted(true)
+		const peer = new Peer({
+			initiator: false,
+			trickle: false,
+			stream: stream
+		})
+		peer.on("signal", (data) => {
+			socket.emit("answerCall", { signal: data, to: caller })
+		})
+		peer.on("stream", (stream) => {
+			userVideo.current.srcObject = stream
+		})
 
-        socket.on('connect', () => {
-            setUserId(socket.id);
-        });
+		peer.signal(callerSignal)
+		connectionRef.current = peer
+	}
 
-        socket.on('user-joined', (id) => {
-            console.log(`User joined: ${id}`);
-            setConnectedUser(id);
-        });
+	const leaveCall = () => {
+		setCallEnded(true)
+		connectionRef.current.destroy()
+	}
 
-        // Khi người dùng rời khỏi phòng
-        socket.on('user-disconnected', (id) => {
-            console.log(`User disconnected: ${id}`);
-            if (connectedUser === id) {
-                setConnectedUser('');
-            }
-        });
-    }, [userId, connectedUser]);
+	return (
+		<>
+			<h1 style={{ textAlign: "center", color: '#fff' }}>Zoomish</h1>
+		<div className="container">
+			<div className="video-container">
+				<div className="video">
+					{stream &&  <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
+				</div>
+				<div className="video">
+					{callAccepted && !callEnded ?
+					<video playsInline ref={userVideo} autoPlay style={{ width: "300px"}} />:
+					null}
+				</div>
+			</div>
+			<div className="myId">
+				<TextField
+					id="filled-basic"
+					label="Name"
+					variant="filled"
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					style={{ marginBottom: "20px" }}
+				/>
+				<CopyToClipboard text={me} style={{ marginBottom: "2rem" }}>
+					<Button variant="contained" color="primary" startIcon={<AssignmentIcon fontSize="large" />}>
+						Copy ID
+					</Button>
+				</CopyToClipboard>
 
-    // Join room function
-    const joinRoom = (room) => {
-        setRoomId(room);
-        socket.emit('join-room', room);  // Tham gia phòng
-    };
-
-    const startCall = async () => {
-
-        const offer = await peerConnection.current.createOffer();
-        await peerConnection.current.setLocalDescription(offer);
-        socket.emit('signal', {
-            to: connectedUser,
-            from: userId,
-            signal: peerConnection.current.localDescription,
-        });
-    };
-
-    return (
-        <div>
-            <div>
-                <video ref={localVideo} autoPlay muted style={{ width: '45%' }} />
-                <video ref={remoteVideo} autoPlay style={{ width: '45%' }} />
-            </div>
-            <input
-                type="text"
-                placeholder="Enter Room ID"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-            />
-            <button onClick={() => joinRoom(roomId)}>Join Room</button>
-            <button onClick={startCall} disabled={!connectedUser}>
-                Start Call
-            </button>
-            <p>Your ID: {userId}</p>
-            <p>Connected User: {connectedUser || 'Waiting for another user...'}</p>
-        </div>
-    );
+				<TextField
+					id="filled-basic"
+					label="ID to call"
+					variant="filled"
+					value={idToCall}
+					onChange={(e) => setIdToCall(e.target.value)}
+				/>
+				<div className="call-button">
+					{callAccepted && !callEnded ? (
+						<Button variant="contained" color="secondary" onClick={leaveCall}>
+							End Call
+						</Button>
+					) : (
+						<IconButton color="primary" aria-label="call" onClick={() => callUser(idToCall)}>
+							<PhoneIcon fontSize="large" />
+						</IconButton>
+					)}
+					{idToCall}
+				</div>
+			</div>
+			<div>
+				{receivingCall && !callAccepted ? (
+						<div className="caller">
+						<h1 >{name} is calling...</h1>
+						<Button variant="contained" color="primary" onClick={answerCall}>
+							Answer
+						</Button>
+					</div>
+				) : null}
+			</div>
+		</div>
+		</>
+	)
 }
 
-export default App;
+export default App
